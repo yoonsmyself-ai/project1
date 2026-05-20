@@ -28,6 +28,18 @@ ENV_PATH = REPO_ROOT / ".env"
 LOGO_PATH = REPO_ROOT / "logo.png"
 LOG_DIR = REPO_ROOT / "logs"
 
+
+def _writable_log_dir() -> Path:
+    """Local dev: repo logs/. Streamlit Cloud: fall back to system temp (read-only mount)."""
+    for candidate in (LOG_DIR, Path(tempfile.gettempdir()) / "ai-education-logs"):
+        try:
+            candidate.mkdir(parents=True, exist_ok=True)
+            return candidate
+        except OSError:
+            continue
+    return Path(tempfile.gettempdir())
+
+
 load_dotenv(dotenv_path=ENV_PATH)
 
 MODEL_NAME = "gpt-4o-mini"
@@ -47,16 +59,18 @@ ANSWER_STYLE_SYSTEM = """당신은 친절하고 공손한 AI 어시스턴트입�
 
 
 def _setup_logging() -> logging.Logger:
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-    log_path = LOG_DIR / f"multiusers_{datetime.now().strftime('%Y%m%d')}.log"
+    log_dir = _writable_log_dir()
+    log_path = log_dir / f"multiusers_{datetime.now().strftime('%Y%m%d')}.log"
     root = logging.getLogger()
     root.handlers.clear()
     root.setLevel(logging.WARNING)
     fmt = logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
-    for handler in (
-        logging.FileHandler(log_path, encoding="utf-8"),
-        logging.StreamHandler(),
-    ):
+    handlers: list[logging.Handler] = [logging.StreamHandler()]
+    try:
+        handlers.insert(0, logging.FileHandler(log_path, encoding="utf-8"))
+    except OSError:
+        pass
+    for handler in handlers:
         handler.setLevel(logging.WARNING)
         handler.setFormatter(fmt)
         root.addHandler(handler)
